@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AngleSharp;
+using System;
 
 namespace scraping
 {
@@ -6,7 +7,15 @@ namespace scraping
 	{
 		static void Main(string[] args)
 		{
-			Console.WriteLine("Hello World!");
+			var address = "https://www.seg.com.ar/categoria/Automatizaciones";
+			Console.Write($"Starting Scraping {address}");
+			
+			var iteratorPage = new IteratorPage(address, ".product-item-wrapper a", "href");
+
+			iteratorPage.ProcessPage().Wait();
+
 		}
+
+
 	}
 }
