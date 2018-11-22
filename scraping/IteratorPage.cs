@@ -1,4 +1,5 @@
 ﻿using AngleSharp;
+using AngleSharp.Dom;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,28 +10,34 @@ namespace scraping
 {
 	public class IteratorPage
 	{
+		private readonly string url;
 		private readonly string selector;
-		private readonly string attr;
+		private readonly Func<IElement, string> getURL;
 		private readonly IConfiguration config;
-
+		
 		/// <summary>
 		/// Itera por cada elemento
 		/// </summary>
 		/// <param name="url">URL</param>
 		/// <param name="selector">Query selector</param>
-		public IteratorPage(string url, string selector, string attr){
-			Url = url;
+		/// <param name="getURL">Funcion que retornara la url completa</param>
+		public IteratorPage(string url, string selector, Func<IElement, string> getURL)
+		{
+			this.url = url;
 			this.selector = selector;
-			this.attr = attr;
+			this.getURL = getURL;
 			this.config = Configuration.Default.WithDefaultLoader();
 		}
 
-		public string Url { get; }
 
-		public async Task ProcessPage(){
-			var document = await BrowsingContext.New(config).OpenAsync(Url);
+		public IEnumerable<string> Urls { get; private set; }
+
+		public async Task GetUrlsPages(){
+			var document = await BrowsingContext.New(config).OpenAsync(url);
 			var cells = document.QuerySelectorAll(selector);
-			var titles = cells.Select(m => m.Attributes[attr].Value);
+			Urls = cells
+				.Select(m => getURL(m))
+				.ToList();
 		}
 	}
 }
