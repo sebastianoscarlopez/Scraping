@@ -39,5 +39,23 @@ namespace scraping
 				.Select(m => getURL(m))
 				.ToList();
 		}
+
+        public void ProcessPages(params Scrapper[] scrappers)
+        {
+            Parallel.ForEach(Urls, (url) =>
+            {
+                var taskDocument = Task.Run(() => BrowsingContext.New(config).OpenAsync(url));
+                taskDocument.Wait();
+                var document = taskDocument.Result;
+                Parallel.ForEach(scrappers, (scrapper) =>
+                {
+                    var texts = scrapper.getFromDocument(document);
+                    foreach(var t in texts)
+                    {
+                        Console.WriteLine(t);
+                    }
+                });
+            });
+        }
 	}
 }
