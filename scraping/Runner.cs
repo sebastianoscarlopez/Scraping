@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace scraping
@@ -26,7 +28,8 @@ namespace scraping
             var config = Configuration.Default.WithDefaultLoader();
 
             var urlBase = "https://www.seg.com.ar";
-            var carpetaImagenes = "c:\\temp\\imagenes";
+            var carpetaArchivos = @"c:\temp";
+            var carpetaImagenes = $@"{carpetaArchivos}\imagenes";
             var categorias = new Dictionary<int, string>(new[] {
                 new KeyValuePair<int, string>(1, "CCTV"),
                 new KeyValuePair<int, string>(2, "Intrusión")
@@ -90,23 +93,29 @@ namespace scraping
                     scrapProductoNombre, scrapProductoBreve, scrapProductoImagen);
 
             logger.LogTrace($"Total imagenes: {urlImagenes.Count}");
-            
+
+            logger.LogTrace($"Archivo de productos en {carpetaImagenes}");
+
             logger.LogTrace($"Descargando imagenes en {carpetaImagenes}");
 
+            var strProductos = new FileStream($@"{}\productos.json", FileMode.Create);
             Parallel.ForEach(urlImagenes, (img) =>
             {
                 try
                 {
                     using (var client = new HttpClient())
-
-                        var nombreImagen = img.Value.Item2;
-                        var nombreArchivo = $"{carpetaImagenes}\\{img.Key}_{nombreImagen}_.jpg";
-
-                        using (var response = await client.GetAsync(url))
+                    {
+                        var nombreImagen = $"{img.Value.Item1}_{img.Key}.jpg";
+                        //var nombreImagen = $"{img.Key}_{Regex.Replace(img.Value.Item2, @".+[\/](.+)$", "$1")}";
+                        var nombreArchivo = $@"{carpetaImagenes}\{nombreImagen}";
+                        var taskImg = Task.Run(() => client.GetAsync(img.Value.Item2));
+                        taskImg.Wait();
+                        using (var response = taskImg.Result)
                         {
-                            using (var imageFile = new FileStream(fileName, FileMode.Create))
+                            using (var strImg = new FileStream(nombreArchivo, FileMode.Create))
                             {
-                                await response.Content.CopyToAsync(imageFile);
+                                Task.Run(() => response.Content.CopyToAsync(strImg))
+                                    .Wait();
                             }
                         }
                     }
