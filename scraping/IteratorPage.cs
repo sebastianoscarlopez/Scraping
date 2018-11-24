@@ -12,12 +12,10 @@ namespace scraping
 	public class IteratorPage
 	{
 		private readonly IConfiguration config;
-        private ILogger logger;
 
-        public IteratorPage(ILogger logger)
+        public IteratorPage(IConfiguration config)
         {
-            this.logger = logger;
-            this.config = Configuration.Default.WithDefaultLoader();
+            this.config = config;
         }
 
         /// <summary>
@@ -27,10 +25,8 @@ namespace scraping
         /// <param name="scrappers">scrappers por cada página, se pasa la key y la url al scraper</param>
         public void ProcessPages(IDictionary<int, string> urls, params Scrapper[] scrappers)
         {
-            logger.LogTrace($"ProcessPages Total:{urls.Count}");
             Parallel.ForEach(urls, (url) =>
             {
-                logger.LogTrace($"ProcessPages Url:{url.Value}");
                 var taskDocument = Task.Run(() => BrowsingContext.New(config).OpenAsync(url.Value));
                 taskDocument.Wait();
                 var document = taskDocument.Result;
