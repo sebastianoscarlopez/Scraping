@@ -1,5 +1,6 @@
 ﻿using AngleSharp;
 using AngleSharp.Dom;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,51 +11,33 @@ namespace scraping
 {
 	public class IteratorPage
 	{
-		private readonly string url;
-		private readonly string selector;
-		private readonly Func<IElement, string> getURL;
 		private readonly IConfiguration config;
-		
-		/// <summary>
-		/// Itera por cada elemento
-		/// </summary>
-		/// <param name="url">URL</param>
-		/// <param name="selector">Query selector</param>
-		/// <param name="getURL">Funcion que retornara la url completa</param>
-		public IteratorPage(string url, string selector, Func<IElement, string> getURL)
-		{
-			this.url = url;
-			this.selector = selector;
-			this.getURL = getURL;
-			this.config = Configuration.Default.WithDefaultLoader();
-		}
+        private ILogger logger;
 
-
-		public IEnumerable<string> Urls { get; private set; }
-
-		public async Task GetUrlsPages(){
-			var document = await BrowsingContext.New(config).OpenAsync(url);
-			var cells = document.QuerySelectorAll(selector);
-			Urls = cells
-				.Select(m => getURL(m))
-				.ToList();
-		}
-
-        public void ProcessPages(params Scrapper[] scrappers)
+        public IteratorPage(ILogger logger)
         {
-            Parallel.ForEach(Urls, (url) =>
+            this.logger = logger;
+            this.config = Configuration.Default.WithDefaultLoader();
+        }
+
+        /// <summary>
+        /// Procesas paginas y realiza los scrappers indicados en cada una
+        /// </summary>
+        /// <param name="urls">Todas las url a las que se hará sraping en forma paralela</param>
+        /// <param name="scrappers">scrappers por cada página, se pasa la key y la url al scraper</param>
+        public void ProcessPages(IDictionary<int, string> urls, params Scrapper[] scrappers)
+        {
+            logger.LogTrace($"ProcessPages Total:{urls.Count}");
+            Parallel.ForEach(urls, (url) =>
             {
-                var taskDocument = Task.Run(() => BrowsingContext.New(config).OpenAsync(url));
+                logger.LogTrace($"ProcessPages Url:{url.Value}");
+                var taskDocument = Task.Run(() => BrowsingContext.New(config).OpenAsync(url.Value));
                 taskDocument.Wait();
                 var document = taskDocument.Result;
-                Parallel.ForEach(scrappers, (scrapper) =>
-                {
-                    var texts = scrapper.getFromDocument(document);
-                    foreach(var t in texts)
-                    {
-                        Console.WriteLine(t);
-                    }
-                });
+                Parallel.ForEach(scrappers,
+                    (scrapper) =>
+                        scrapper.Process(document, url.Key, url.Value)
+                    );
             });
         }
 	}

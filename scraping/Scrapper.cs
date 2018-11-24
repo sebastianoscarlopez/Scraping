@@ -9,21 +9,22 @@ namespace scraping
     public class Scrapper
     {
         private readonly string selector;
-        private readonly Func<IElement, string> scrapText;
+        private readonly Action<IElement, int, string> scrap;
 
         public string Text { get; private set; }
-        public Scrapper(string selector, Func<IElement, string> scrapText)
+        public Scrapper(string selector, Action<IElement, int, string> scrap)
         {
             this.selector = selector;
-            this.scrapText = scrapText;
+            this.scrap = scrap;
         }
 
-        public List<string> getFromDocument(IDocument document)
+        public void Process(IDocument document, int key = 0, string url = null)
         {
-            var cells = document.QuerySelectorAll(selector);
-            return cells
-                .Select(m => scrapText(m))
-                .ToList();
+            var elements = document.QuerySelectorAll(selector);
+            foreach(var e in elements)
+            {
+                scrap(e, key, url);
+            }
         }
     }
 }

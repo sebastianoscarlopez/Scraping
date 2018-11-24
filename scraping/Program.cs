@@ -1,6 +1,9 @@
-﻿using AngleSharp;
+﻿using System;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NLog.Extensions.Logging;
+using AngleSharp;
 using AngleSharp.Dom;
-using System;
 
 namespace scraping
 {
@@ -8,21 +11,38 @@ namespace scraping
 	{
 		static void Main(string[] args)
 		{
-			var urlBase = "https://www.seg.com.ar";
-			var url = $"{urlBase}/categoria/Automatizaciones";
-			Console.Write($"Starting Scraping {url}");
-			
-			var iteratorPage = new IteratorPage(url, ".product-item-wrapper .product-title a:first-child", (IElement element) => $"{urlBase}{element.Attributes["href"].Value}");
+            var servicesProvider = BuildDi();
+            var runner = servicesProvider.GetRequiredService<Runner>();
 
-			iteratorPage.GetUrlsPages().Wait();
+            runner.Run();
 
-			foreach(var u in iteratorPage.Urls){
-				Console.WriteLine(u);
-			}
-            iteratorPage.ProcessPages(new Scrapper(".title", (element) => element.TextContent));
+            // Ensure to flush and stop internal timers/threads before application-exit (Avoid segmentation fault on Linux)
+            NLog.LogManager.Shutdown();
 
             Console.WriteLine("fin");
             Console.ReadKey();
 		}
-	}
+
+        private static IServiceProvider BuildDi()
+        {
+            var services = new ServiceCollection();
+
+            //Runner is the custom class
+            services.AddTransient<Runner>();
+
+            services.AddSingleton<ILoggerFactory, LoggerFactory>();
+            services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+            services.AddLogging((builder) => builder.SetMinimumLevel(LogLevel.Trace));
+
+            var serviceProvider = services.BuildServiceProvider();
+
+            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+
+            //configure NLog
+            loggerFactory.AddNLog(new NLogProviderOptions { CaptureMessageTemplates = true, CaptureMessageProperties = true });
+            NLog.LogManager.LoadConfiguration("nlog.config");
+
+            return serviceProvider;
+        }
+    }
 }
