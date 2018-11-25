@@ -2,10 +2,12 @@
 using AngleSharp.Dom;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
@@ -47,20 +49,21 @@ namespace scraping
                     from c in categorias
                     select new KeyValuePair<int, List<int>>(c.Item1, new List<int>())
                 );
-            var urlProductos = new List<(int, string)>();
-            var productosNombres = new List<(int, string)>();
-            var productosBreves = new List<(int, string)>();
-            var productosDescripcion = new List<(int, string)>();
-            var urlImagenes = new List<(int, string)>();
+            var urlProductos = new ConcurrentBag<(int, string)>();
+            var productosNombres = new ConcurrentBag<(int, string)>();
+            var productosBreves = new ConcurrentBag<(int, string)>();
+            var productosDescripcion = new ConcurrentBag<(int, string)>();
+            var productosDetalles = new ConcurrentBag<(int, string)>();
+            var urlImagenes = new ConcurrentBag<(int, string)>();
 
             var scrapUrlProducto = new Scrapper(
                 selector: ".product-item-wrapper .product-title a:first-child",
-                scrap: (IElement element, int idPage, int idCategoria, string url) =>
+                scrap: (IElement element, int idPage, int idCategoria, string url, int idElement) =>
                         urlProductos.Add((idCategoria, $"{urlBase}{element.Attributes["href"].Value}")));
             
             var scrapProductoNombre = new Scrapper(
                 selector: ".title:first-child",
-                scrap: (IElement element, int idProducto, int idCategoria, string url) =>
+                scrap: (IElement element, int idProducto, int idCategoria, string url, int idElement) =>
                 {
                     lock (__lockCategoriaProductos)
                     {
@@ -72,32 +75,62 @@ namespace scraping
 
             var scrapProductoBreve = new Scrapper(
                 selector: ".title+h2",
-                scrap: (IElement element, int idProducto, int idCategoria, string url) =>
+                scrap: (IElement element, int idProducto, int idCategoria, string url, int idElement) =>
                     productosBreves.Add((idProducto, $"{element.InnerHtml}")));
 
             var scrapProductoDescripcion = new Scrapper(
                 selector: "#product .description",
-                scrap: (IElement element, int idProducto, int idCategoria, string url) =>
+                scrap: (IElement element, int idProducto, int idCategoria, string url, int idElement) =>
                     productosDescripcion.Add((idProducto, $"{element.InnerHtml}")));
 
+            var scrapProductoDetalle = new Scrapper(
+                selector: "#tabs-information .panel-body h4",
+                scrap: (IElement element, int idProducto, int idCategoria, string url, int idElement) =>
+                    productosDetalles.Add((idProducto, $"{element.QuerySelector("strong").TextContent}{element.QuerySelector("span").TextContent}")));
+            
             var scrapProductoImagen = new Scrapper(
                 selector: ".image-item img",
-                scrap: (IElement element, int idProducto, int idCategoria, string url) =>
+                scrap: (IElement element, int idProducto, int idCategoria, string url, int idElement) =>
                     urlImagenes.Add((idProducto, new Uri(new Uri(urlBase), element.Attributes["src"].Value).AbsoluteUri)));
 
             logger.LogTrace($"Starting Scraping categorias");
 
             var pagesCategorias = new IteratorPage(config);
             pagesCategorias.ProcessPages(urlCategorias, scrapUrlProducto);
-
-            logger.LogTrace($"Total productos: {urlProductos.Count}");
-
+            
+            logger.LogTrace($"Scraping en {urlProductos.Count} productos");
             var pagesProductos = new IteratorPage(config);
             pagesProductos.ProcessPages(
                     urlProductos,
-                    scrapProductoNombre, scrapProductoBreve, scrapProductoDescripcion, scrapProductoImagen);
+                    scrapProductoNombre, scrapProductoBreve, scrapProductoDescripcion, scrapProductoDetalle, scrapProductoImagen);
 
-            logger.LogTrace($"Total imagenes: {urlImagenes.Count}");
+            logger.LogTrace($"Generando información");
+
+            var exp = new Regex(@"([^\:]+)\:(.*)");
+            var especificacion = new List<(int, string)>();
+            var relProductosEspecificaciones = new List<(int, int, string)>();
+            var idEspecificacion = 0;
+            foreach (var d in productosDetalles
+                    .GroupBy(e => exp.Replace(e.Item2, "$1").Trim())){
+                especificacion.Add((++idEspecificacion, d.Key));
+                relProductosEspecificaciones.AddRange(
+                        from r in d
+                        select (r.Item1, idEspecificacion, exp.Replace(r.Item2, "$2").Trim())
+                    );
+            }
+
+            CrearEspecificacionesXML(carpetaArchivos, especificacion, relProductosEspecificaciones);
+
+
+            var categoriaProductos = new List<(int, string)>();
+            foreach (var r in relCategoriaProductos)
+            {
+                categoriaProductos.AddRange(
+                    from i in r.Value
+                    select (r.Key, i.ToString())
+                );
+            }
+            CrearProductoXML(carpetaArchivos, productosNombres, productosBreves, productosDescripcion, categoriaProductos);
 
             logger.LogTrace($"Descargando imagenes en {carpetaImagenes}");
 
@@ -154,54 +187,68 @@ namespace scraping
 
             logger.LogTrace($"Archivo de productos en {carpetaImagenes}");
 
-            var productoImagenes = new List<(int, string)>();
+            var productoImagenes = new List<(int, int)>();
             foreach(var r in relProductoImagenes)
             {
                 productoImagenes.AddRange(
                     from i in r.Value
-                    select (r.Key, i.ToString())
+                    select (r.Key, i)
                 );
             }
 
-            var categoriaProductos = new List<(int, string)>();
-            foreach (var r in relCategoriaProductos)
-            {
-                categoriaProductos.AddRange(
-                    from i in r.Value
-                    select (r.Key, i.ToString())
-                );
-            }
-
-            CrearProductoXML($@"{carpetaArchivos}\productos.xml", productosNombres, productosBreves, productosDescripcion, productoImagenes, categoriaProductos);
-
+            CrearProductoImagenesXML(carpetaArchivos, productoImagenes);
             logger.LogTrace("Termino");
+        }
+
+        private void CrearEspecificacionesXML(string path, List<(int, string)> especificacion, List<(int, int, string)> relProductosEspecificaciones)
+        {
+            var root = new XElement("Especificaciones",
+                    from e in especificacion
+                    select new XElement("Especificacion",
+                            new XAttribute("IdEspecificacion", e.Item1),
+                            new XAttribute("Nombre", e.Item2)
+                    ));
+            root.Save($@"{path}\especificaciones.xml");
+
+            root = new XElement("ProductosEspecificaciones",
+                    from r in relProductosEspecificaciones
+                    select new XElement("Values",
+                        new XAttribute("IdProducto", r.Item1),
+                        new XAttribute("IdEspecificacion", r.Item2),
+                        new XAttribute("Texto", r.Item3)
+                    ));
+
+            root.Save($@"{path}\productosEspecificacion.xml");
         }
 
         /// <summary>
         /// Arma xml de productos
         /// </summary>
-        /// <param name="path">ruta del archivo</param>
-        /// <param name="datos">nombres, breve, descripcion, imagenes, categorias en este orden</param>
-        private void CrearProductoXML(string path, params List<(int, string)>[] datos)
+        /// <param name="path">carpeta</param>
+        /// <param name="datos">nombres, breve, descripcion, categorias en este orden</param>
+        private void CrearProductoXML(string path, params IEnumerable<(int, string)>[] datos)
         {
             var root = new XElement("Productos", (
                     from d in datos[0]
                     select new XElement("Producto",
-                        new XAttribute("IdCategoria", datos[4].Where(i => int.Parse(i.Item2) == d.Item1).Single().Item1),
+                        new XAttribute("IdCategoria", datos[3].Where(i => int.Parse(i.Item2) == d.Item1).Single().Item1),
                         new XAttribute("IdProducto", d.Item1),
                         new XAttribute("Nombre", d.Item2 ?? ""),
                         new XAttribute("Breve", datos[1].Where(i => i.Item1 == d.Item1).FirstOrDefault().Item2 ?? ""),
-                        new XAttribute("Descripcion", datos[2].Where(i => i.Item1 == d.Item1).FirstOrDefault().Item2 ?? ""),
-                        datos[3].Where(i => i.Item1 == d.Item1).Count() > 0
-                            ? new XElement("Imagenes",
-                                from r in datos[3].Where(i => i.Item1 == d.Item1)
-                                select new XElement("Imagen", r.Item2)
-                                )
-                            : new XElement("Imagenes", ""))
-                ));
+                        new XAttribute("Descripcion", datos[2].Where(i => i.Item1 == d.Item1).FirstOrDefault().Item2 ?? ""))
+                ));            
+            root.Save($@"{path}\productos.xml");
+        }
 
-            logger.LogTrace(root.ToString());
-            root.Save(path);
+        private void CrearProductoImagenesXML(string path, IEnumerable<(int, int)> imagenes)
+        {
+            var root = new XElement("ProductosImagenes",
+                    from i in imagenes
+                    select new XElement("Values",
+                        new XAttribute("IdProducto", i.Item1),
+                        new XAttribute("IdImagen", i.Item2)
+                ));
+            root.Save($@"{path}\productosImagenes.xml");
         }
     }
 }

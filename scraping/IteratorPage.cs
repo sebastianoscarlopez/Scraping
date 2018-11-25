@@ -18,7 +18,7 @@ namespace scraping
         /// </summary>
         /// <param name="urls">Todas las url a las que se hará sraping en forma paralela</param>
         /// <param name="scrappers">scrappers por cada página, se pasa la key y la url al scraper</param>
-        public void ProcessPages(IList<(int, string)> urls, params Scrapper[] scrappers)
+        public void ProcessPages(IEnumerable<(int, string)> urls, params Scrapper[] scrappers)
         {
             var idPage = 1;
             var _lock = new object();
