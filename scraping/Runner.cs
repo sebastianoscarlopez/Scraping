@@ -29,17 +29,20 @@ namespace scraping
             var config = Configuration.Default.WithDefaultLoader();
 
             var urlBase = "https://www.seg.com.ar";
-            var carpetaArchivos = @"c:\temporal";
+            var carpetaArchivos = @"c:\temporal\seg";
             var carpetaImagenes = $@"{carpetaArchivos}\imagenes";
             var categorias = new List<(int, string)>(new[] {
-                (1, "Automatizaciones"),
-                (2, "CCTV"),
-                (3, "Intrusión"),
-                (4, "Control-de-Accesos"),
-                (5, "Accesorios")
+				(1, "Automatizaciones/Portones/Corredizos"),
+				(2, "Automatizaciones/Portones/Levadizos"),
+				(3, "Automatizaciones/Portones/Pivotantes"),
+				(4, "Automatizaciones/Accesorios"),
+				(5, "CCTV"),
+				(6, "Intrusión/Alarmas"),
+                (7, "Control-de-Accesos"),
+                (8, "Accesorios")
             });
-
-            var urlCategorias = new List<(int, string)>(
+			
+			var urlCategorias = new List<(int, string)>(
                 categorias
                 .Select(c =>
                     (c.Item1, $"{urlBase}/categoria/{c.Item2}")
@@ -130,7 +133,9 @@ namespace scraping
                     select (r.Key, i.ToString())
                 );
             }
-            CrearProductoXML(carpetaArchivos, productosNombres, productosBreves, productosDescripcion, categoriaProductos);
+			CrearCategoriasXML(carpetaArchivos, categorias);
+
+			CrearProductoXML(carpetaArchivos, productosNombres, productosBreves, productosDescripcion, categoriaProductos);
 
             logger.LogTrace($"Descargando imagenes en {carpetaImagenes}");
 
@@ -200,7 +205,18 @@ namespace scraping
             logger.LogTrace("Termino");
         }
 
-        private void CrearEspecificacionesXML(string path, List<(int, string)> especificacion, List<(int, int, string)> relProductosEspecificaciones)
+		private void CrearCategoriasXML(string path, List<(int, string)> categorias)
+		{
+			var root = new XElement("Categorias",
+					from e in categorias
+					select new XElement("Categoria",
+							new XAttribute("IdCategoria", e.Item1),
+							new XAttribute("Nombre", e.Item2)
+					));
+			root.Save($@"{path}\categorias.xml");
+		}
+		
+		private void CrearEspecificacionesXML(string path, List<(int, string)> especificacion, List<(int, int, string)> relProductosEspecificaciones)
         {
             var root = new XElement("Especificaciones",
                     from e in especificacion
